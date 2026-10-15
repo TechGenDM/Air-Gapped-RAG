@@ -1,0 +1,37 @@
+name: Feature Request
+description: Suggest an idea or enhancement for Air-Gapped RAG
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement to Air-Gapped RAG!
+  - type: input
+    id: title
+    attributes:
+      label: Feature Title
+      description: A concise summary of the proposed feature.
+      placeholder: "e.g., Add support for multi-modal embedding models"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem or limitation? Please describe.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution or user experience you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: air_gap_considerations
+    attributes:
+      label: Air-Gap & Privacy Considerations
+      description: How does this feature uphold zero-telemetry, offline-first, local execution constraints?
+    validations:
+      required: true
