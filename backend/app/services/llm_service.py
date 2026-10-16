@@ -186,7 +186,7 @@ class OllamaLLMService:
                     pass
 
         if not isinstance(parsed, dict):
-            logger.warning("Could not parse JSON structure from LLM output: %s", content[:200])
+            logger.warning("Could not parse JSON structure from LLM output (length=%d)", len(content))
             return "Not found in records", [], False
 
         answer = str(parsed.get("answer", "")).strip()

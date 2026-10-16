@@ -143,6 +143,18 @@ def test_upload_size_limit_enforced(temp_upload_dir, create_multipage_pdf):
         app.dependency_overrides.clear()
 
 
+def test_upload_realistic_51mb_oversized_pdf_returns_413(client):
+    """Verify that a realistic 51 MB multipart upload is aborted with HTTP 413 under default 50 MB limits."""
+    # 51 MB payload with valid %PDF- magic prefix
+    oversized_data = b"%PDF-1.4\n" + (b"0" * (51 * 1024 * 1024))
+    response = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("oversized_51mb.pdf", BytesIO(oversized_data), "application/pdf")},
+    )
+    assert response.status_code == status.HTTP_413_CONTENT_TOO_LARGE
+    assert "File size exceeds the maximum limit of 50 MB." in response.json()["detail"]
+
+
 def test_safe_handling_of_path_traversal_filename(client, temp_upload_dir, create_multipage_pdf):
     """Verify that directory traversal sequences in filename are sanitized and ignored."""
     pdf_bytes = create_multipage_pdf(["Safe file mapping."])

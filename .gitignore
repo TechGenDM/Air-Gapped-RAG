@@ -59,6 +59,13 @@ backend/data/
 **/lancedb/
 *.lance
 
+# Large model weights & tensors
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+*.pt
+
 
 # OS specific
 .DS_Store

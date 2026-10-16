@@ -1,6 +1,5 @@
 """Focused regression tests for scanned OCR table retrieval and answer generation."""
 
-from pathlib import Path
 import pytest
 import pymupdf
 
@@ -12,42 +11,50 @@ from app.services.llm_service import OllamaLLMService
 
 def _create_synthetic_scanned_grade_pdf() -> bytes:
     """Generate a synthetic scanned PDF containing a rendered grade evaluation table."""
-    # First, render a page with a multi-column grade table
     doc_render = pymupdf.open()
     p_render = doc_render.new_page(width=595, height=842)
-    
-    # Title
-    p_render.insert_text((50, 60), "ACADEMIC EVALUATION GUIDELINES", fontsize=16)
-    p_render.insert_text((50, 90), "1. Courses are evaluated according to the following letter grade scheme:", fontsize=11)
-    
-    # Header and multi-column table
-    # Columns spaced by > 100px
-    p_render.insert_text((50, 130), "Letter Grade *", fontsize=10)
-    p_render.insert_text((180, 130), "A", fontsize=10)
-    p_render.insert_text((270, 130), "A-", fontsize=10)
-    p_render.insert_text((360, 130), "B", fontsize=10)
-    p_render.insert_text((450, 130), "B-", fontsize=10)
-    p_render.insert_text((530, 130), "C", fontsize=10)
 
-    p_render.insert_text((50, 160), "Qualitative", fontsize=10)
-    p_render.insert_text((270, 160), "Very", fontsize=10)
-    p_render.insert_text((450, 160), "Above", fontsize=10)
+    p_render.insert_text((50, 60), "SALIENT POINTS OF EVALUATION", fontsize=12, fontname="helv")
+    p_render.insert_text(
+        (50, 85),
+        "1. The performance in most courses is spelt out in terms of letter grades A, A-, B, B-, C.\n"
+        "Each letter grade has a qualitative meaning and a grade point value as given below:",
+        fontsize=10,
+        fontname="helv",
+    )
 
-    p_render.insert_text((50, 180), "Meaning", fontsize=10)
-    p_render.insert_text((180, 180), "Excellent", fontsize=10)
-    p_render.insert_text((270, 180), "Good", fontsize=10)
-    p_render.insert_text((360, 180), "Good", fontsize=10)
-    p_render.insert_text((450, 180), "Average", fontsize=10)
-    p_render.insert_text((530, 180), "Fair", fontsize=10)
+    # Table headers and cells
+    p_render.insert_text((50, 130), "Letter Grade *", fontsize=9, fontname="helv")
+    p_render.insert_text((160, 130), "A", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 130), "A-", fontsize=9, fontname="helv")
+    p_render.insert_text((300, 130), "B", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 130), "B-", fontsize=9, fontname="helv")
+    p_render.insert_text((440, 130), "C", fontsize=9, fontname="helv")
 
-    p_render.insert_text((50, 210), "Grade Point", fontsize=10)
-    p_render.insert_text((180, 210), "10", fontsize=10)
-    p_render.insert_text((270, 210), "9", fontsize=10)
-    p_render.insert_text((360, 210), "8", fontsize=10)
-    p_render.insert_text((450, 210), "7", fontsize=10)
-    p_render.insert_text((530, 210), "6", fontsize=10)
+    p_render.insert_text((50, 146), "Qualitative", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 146), "Very", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 146), "Above", fontsize=9, fontname="helv")
 
-    p_render.insert_text((50, 260), "Note: Grades A-, B- and C- were introduced in the First Semester.", fontsize=10)
+    p_render.insert_text((50, 160), "Meaning", fontsize=9, fontname="helv")
+    p_render.insert_text((160, 160), "Excellent", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 160), "Good", fontsize=9, fontname="helv")
+    p_render.insert_text((300, 160), "Good", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 160), "Average", fontsize=9, fontname="helv")
+    p_render.insert_text((440, 160), "Fair", fontsize=9, fontname="helv")
+
+    p_render.insert_text((50, 176), "Grade Point", fontsize=9, fontname="helv")
+    p_render.insert_text((160, 176), "10", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 176), "9", fontsize=9, fontname="helv")
+    p_render.insert_text((300, 176), "8", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 176), "7", fontsize=9, fontname="helv")
+    p_render.insert_text((440, 176), "6", fontsize=9, fontname="helv")
+
+    p_render.insert_text(
+        (50, 210),
+        "Note: Among the letter grades mentioned above, the grades A- and B- were introduced in Semester 1.",
+        fontsize=9,
+        fontname="helv",
+    )
 
     pix = p_render.get_pixmap(dpi=300)
     doc_render.close()
@@ -72,9 +79,12 @@ def test_synthetic_scanned_grade_table_extraction():
     assert page.page_number == 1
     assert page.ocr_applied is True
     assert page.word_count > 20
-    assert "ACADEMIC EVALUATION GUIDELINES" in page.text
-    assert "B-" in page.text
-    assert "Above" in page.text and "Average" in page.text
+    assert "SALIENT POINTS OF EVALUATION" in page.text
+    assert "Table Column Details:" in page.text
+    assert "Column B-: Above Average 7" in page.text
+    assert "Column A: Excellent 10" in page.text
+    assert "Column A-: Very Good 9" in page.text
+    assert "Column B: Good 8" in page.text
 
 
 def test_synthetic_ocr_table_chunking_preserves_page_boundaries():
@@ -177,15 +187,38 @@ async def test_unrelated_grade_query_safeguard_refusal(monkeypatch):
     assert len(sources) == 0
 
 
-def test_second_semester_pdf_page_2_table_column_details():
-    """Verify that SECOND SEMESTER 2025-26.pdf page 2 extracts table column mappings."""
-    sample_path = Path("/Users/devasishmishra/Downloads/SECOND SEMESTER 2025-26.pdf")
-    if not sample_path.exists():
-        pytest.skip("SECOND SEMESTER 2025-26.pdf not found in local Downloads")
+def test_synthetic_scanned_multipage_grade_table_column_details():
+    """Verify that multi-page PDF with scanned evaluation table preserves column alignment."""
+    doc = pymupdf.open()
+    p1 = doc.new_page(width=595, height=842)
+    p1.insert_text((50, 60), "COMPUTER SCIENCE 101 SYLLABUS", fontsize=14, fontname="helv")
+    p1.insert_text(
+        (50, 90),
+        "This course introduces fundamental principles of computer systems and programming.\n"
+        "Lectures meet on Mondays and Wednesdays. Midterm exams are held during Week 8.\n"
+        "Students are expected to adhere to academic integrity guidelines for all assignments.\n"
+        "Grading policies and performance standards are summarized on Page 2.",
+        fontsize=10,
+        fontname="helv",
+    )
 
-    result = extract_pdf_pages(sample_path.read_bytes())
+    p2_bytes = _create_synthetic_scanned_grade_pdf()
+    p2_doc = pymupdf.open(stream=p2_bytes, filetype="pdf")
+    doc.insert_pdf(p2_doc)
+    p2_doc.close()
+
+    full_pdf_bytes = doc.tobytes()
+    doc.close()
+
+    result = extract_pdf_pages(full_pdf_bytes)
     assert result.total_pages == 2
 
+    # Page 1 is native text
+    assert result.pages[0].page_number == 1
+    assert result.pages[0].ocr_applied is False
+    assert "COMPUTER SCIENCE 101 SYLLABUS" in result.pages[0].text
+
+    # Page 2 is scanned table with OCR
     p2 = result.pages[1]
     assert p2.page_number == 2
     assert p2.ocr_applied is True

@@ -1,6 +1,7 @@
 """Unit tests for PDF extraction service."""
 
 import pytest
+import pymupdf
 
 from app.core.errors import (
     CorruptPDFError,
@@ -206,15 +207,66 @@ def test_ocr_failure_falls_back_gracefully_without_exception(monkeypatch):
     assert page.text == ""
 
 
-def test_second_semester_sample_pdf_page_2_ocr():
-    """Verify OCR specifically on the user-reported SECOND SEMESTER 2025-26.pdf bug."""
-    from pathlib import Path
+def test_synthetic_scanned_evaluation_page_ocr():
+    """Verify OCR fallback specifically on a multi-page document with a scanned evaluation table."""
+    doc = pymupdf.open()
 
-    sample_path = Path("/Users/devasishmishra/Downloads/SECOND SEMESTER 2025-26.pdf")
-    if not sample_path.exists():
-        pytest.skip("SECOND SEMESTER 2025-26.pdf not found in local Downloads")
+    # Page 1: Native selectable text (> 40 words)
+    p1 = doc.new_page(width=595, height=842)
+    p1.insert_text((50, 60), "INSTITUTE ACADEMIC REGULATIONS & COURSE POLICIES", fontsize=14, fontname="helv")
+    p1.insert_text(
+        (50, 90),
+        "This official handbook establishes the academic curriculum and examination standards.\n"
+        "Students registered for degree programs must satisfy minimum credit requirements.\n"
+        "Course grading criteria and evaluation policies are formulated by the Senate.\n"
+        "All candidates must adhere to ethical research protocols and academic guidelines.\n"
+        "Continuous evaluation marks will be combined with final comprehensive examination results.",
+        fontsize=10,
+        fontname="helv",
+    )
 
-    pdf_bytes = sample_path.read_bytes()
+    # Page 2: Scanned evaluation points table
+    doc_render = pymupdf.open()
+    p_render = doc_render.new_page(width=595, height=842)
+    p_render.insert_text((50, 60), "SALIENT POINTS OF EVALUATION", fontsize=12, fontname="helv")
+    p_render.insert_text(
+        (50, 85),
+        "1. The performance in most courses is spelt out in terms of letter grades A, A-, B, B-, C.\n"
+        "Each letter grade has a qualitative meaning and a grade point value as given below:",
+        fontsize=10,
+        fontname="helv",
+    )
+    p_render.insert_text((50, 130), "Letter Grade *", fontsize=9, fontname="helv")
+    p_render.insert_text((160, 130), "A", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 130), "A-", fontsize=9, fontname="helv")
+    p_render.insert_text((300, 130), "B", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 130), "B-", fontsize=9, fontname="helv")
+
+    p_render.insert_text((50, 146), "Qualitative", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 146), "Very", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 146), "Above", fontsize=9, fontname="helv")
+
+    p_render.insert_text((50, 160), "Meaning", fontsize=9, fontname="helv")
+    p_render.insert_text((160, 160), "Excellent", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 160), "Good", fontsize=9, fontname="helv")
+    p_render.insert_text((300, 160), "Good", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 160), "Average", fontsize=9, fontname="helv")
+
+    p_render.insert_text((50, 176), "Grade Point", fontsize=9, fontname="helv")
+    p_render.insert_text((160, 176), "10", fontsize=9, fontname="helv")
+    p_render.insert_text((230, 176), "9", fontsize=9, fontname="helv")
+    p_render.insert_text((300, 176), "8", fontsize=9, fontname="helv")
+    p_render.insert_text((370, 176), "7", fontsize=9, fontname="helv")
+
+    pix = p_render.get_pixmap(dpi=300)
+    doc_render.close()
+
+    p2 = doc.new_page(width=595, height=842)
+    p2.insert_image(p2.rect, pixmap=pix)
+
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
     result = extract_pdf_pages(pdf_bytes)
 
     assert result.total_pages == 2
@@ -222,12 +274,13 @@ def test_second_semester_sample_pdf_page_2_ocr():
     # Page 1 has native selectable text
     assert result.pages[0].page_number == 1
     assert result.pages[0].ocr_applied is False
-    assert result.pages[0].word_count > 50
+    assert result.pages[0].word_count > 40
+    assert "INSTITUTE ACADEMIC REGULATIONS" in result.pages[0].text
 
     # Page 2 has the scanned evaluation points table
-    p2 = result.pages[1]
-    assert p2.page_number == 2
-    assert p2.ocr_applied is True
-    assert "SALIENT POINTS OF EVALUATION" in p2.text
-    assert p2.word_count > 100
-    assert p2.char_count > 500
+    p2_res = result.pages[1]
+    assert p2_res.page_number == 2
+    assert p2_res.ocr_applied is True
+    assert "SALIENT POINTS OF EVALUATION" in p2_res.text
+    assert "Above Average" in p2_res.text or "Column B-: Above Average 7" in p2_res.text
+    assert p2_res.word_count > 25
