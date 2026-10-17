@@ -1,11 +1,11 @@
-"""Air-Gapped RAG — End-to-End Offline Demonstration Script.
+"""Air-Gapped RAG — Local-First Contract Q&A Prototype Demonstration Script.
 
 Generates a synthetic multi-page commercial contract, uploads it to the local
 Air-Gapped RAG backend, indexes chunks in LanceDB, and evaluates both answerable
 and unanswerable queries to verify:
   1. Grounded answers with exact physical page citations.
   2. Strict refusal ("Not found in records") for unanswerable/out-of-scope questions.
-  3. 100% offline local execution without network calls.
+  3. Local execution over loopback endpoints without cloud LLM APIs.
 """
 
 import argparse
@@ -171,9 +171,9 @@ DEMO_QUESTIONS = [
 def run_demo(base_url: str = "http://127.0.0.1:8000", local_mode: bool = False):
     """Execute end-to-end demonstration against local FastAPI backend or in-process TestClient."""
     print("=" * 80)
-    print(" AIR-GAPPED RAG: LOCAL-FIRST CONTRACT INTELLIGENCE DEMONSTRATION")
+    print(" AIR-GAPPED RAG: LOCAL-FIRST CONTRACT Q&A PROTOTYPE DEMONSTRATION")
     print("=" * 80)
-    print("Testing 100% offline execution, exact page citations, and hallucination refusal.\n")
+    print("Testing local execution, exact page citations, and hallucination refusal.\n")
 
     client = None
     if not local_mode:
@@ -299,15 +299,15 @@ def run_demo(base_url: str = "http://127.0.0.1:8000", local_mode: bool = False):
 
     print("\n" + "=" * 80)
     if all_passed:
-        print(" ALL 5 DEMONSTRATION VERIFICATIONS PASSED PERFECTLY!")
-        print(" Sovereign, air-gapped PDF question-answering with citation integrity confirmed.")
+        print(" ALL 5 DEMONSTRATION VERIFICATIONS PASSED!")
+        print(" Local contract question-answering prototype with citation integrity verified.")
     else:
         print(" SOME DEMO CHECKS ENCOUNTERED ISSUES. Review output above.")
     print("=" * 80)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Air-Gapped RAG offline demonstration.")
+    parser = argparse.ArgumentParser(description="Run Air-Gapped RAG local contract demonstration.")
     parser.add_argument("--url", default="http://127.0.0.1:8000", help="FastAPI backend base URL")
     parser.add_argument("--local", action="store_true", help="Force direct in-process mode via FastAPI TestClient")
     args = parser.parse_args()

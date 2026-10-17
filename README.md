@@ -6,9 +6,9 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16.4-black.svg)](https://nextjs.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.0-38B2AC.svg)](https://tailwindcss.com/)
 [![Vector DB: LanceDB](https://img.shields.io/badge/LanceDB-Embedded-orange.svg)](https://lancedb.github.io/lancedb/)
-[![Air--Gapped: 100% Local](https://img.shields.io/badge/Air--Gapped-100%25%20Local-success.svg)](#offline--air-gap-verification-protocol)
+[![Local-First](https://img.shields.io/badge/Local--First-Prototype-blue.svg)](#local-execution--network-isolation-verification-pending)
 
-An enterprise-ready, **100% local, air-gapped Retrieval-Augmented Generation (RAG) system** engineered for sovereign environments, legal contract reviews, medical records, and confidential document analysis. Operates completely without external cloud APIs, tracking, or network telemetry.
+A **local-first contract PDF question-answering prototype** engineered for confidential legal contract review. Operates locally with PyMuPDF, local Tesseract OCR, LanceDB, and Ollama, without reliance on cloud LLM APIs.
 
 Built for the **Hacktoberfest 2026 Week 2 Open-Source AI Challenge**.
 
@@ -16,13 +16,13 @@ Built for the **Hacktoberfest 2026 Week 2 Open-Source AI Challenge**.
 
 ## Problem Statement
 
-Organizations dealing with sensitive documents—such as commercial agreements, proprietary schematics, medical records, and defense specifications—cannot use cloud-hosted AI APIs (OpenAI, Anthropic, Google Cloud) without violating regulatory compliance, customer NDAs, or sovereign data isolation mandates. Furthermore, standard RAG frameworks suffer from critical failure modes in legal workflows:
+Organizations reviewing confidential commercial agreements and contracts cannot use cloud-hosted AI APIs (OpenAI, Anthropic, Google Cloud) without risking exposure of private terms, pricing schedules, or customer NDAs. Furthermore, standard RAG frameworks suffer from critical failure modes in legal workflows:
 1. **Unverifiable Citations:** Most vector pipelines arbitrarily chunk text across document pages, losing original physical page references.
 2. **Scanned PDF Blindness:** Pure digital parsers silently fail on scanned or image-based pages, producing empty records.
 3. **Hallucination under Uncertainty:** Cloud LLMs tend to fabricate plausible answers when evidence is missing rather than explicitly declaring absence.
-4. **Cloud Leaks & Telemetry:** Most "local" tools still phone home for analytics, hosted web fonts, or API telemetry.
+4. **Cloud Leaks & Telemetry:** Many tools still phone home for analytics, hosted web fonts, or API telemetry.
 
-**Air-Gapped RAG** solves these challenges by combining offline-first document extraction (PyMuPDF + Tesseract OCR), page-preserving sliding chunking, embedded vector indexing (LanceDB), and local open-weights LLM inference (Ollama + Gemma 4 12B) into a single sovereign desktop application.
+**Air-Gapped RAG** addresses these challenges by combining offline-capable document extraction (PyMuPDF + Tesseract OCR), page-preserving sliding chunking, embedded vector indexing (LanceDB), and local open-weights LLM inference (Ollama + Gemma 4 12B) into a local web application using Next.js and FastAPI.
 
 ---
 
@@ -73,10 +73,10 @@ flowchart TD
 
 ## Core Features
 
-- **Local-First Architecture & Offline Readiness:** Engineered to operate completely within an isolated local environment once runtime dependencies and model weights are pre-installed. All vector embeddings (`nomic-embed-text`) and inference operations (`gemma4:12b`) execute strictly against local hardware over loopback (`127.0.0.1`), with no cloud LLM API calls, hosted web fonts, or remote analytics.
+- **Local-First Architecture (Network Isolation Verification Pending):** Designed to operate within a local environment once runtime dependencies and model weights are pre-installed. Vector embeddings (`nomic-embed-text`) and inference requests (`gemma4:12b`) execute over loopback (`127.0.0.1`), with no cloud LLM API calls, hosted fonts, or remote analytics configured. Full physical air-gap isolation and zero network egress have not yet been independently verified.
 - **Strict 1-Indexed Physical Page Citations:** Text chunks never span multiple physical pages. Every retrieved passage preserves original physical page numbers for auditable legal and compliance review.
 - **Hybrid Digital & Scanned PDF OCR:** Automatically falls back to high-resolution (300 DPI) Tesseract OCR when digital text extraction yields insufficient content, reconstructing multi-column tabular layouts.
-- **Embedded Serverless Vector Storage:** Uses LanceDB directly in-process (`backend/data/lancedb/`), eliminating separate database server processes, cloud clusters, or socket exposure.
+- **Embedded In-Process Vector Storage:** Uses LanceDB directly in-process (`backend/data/lancedb/`), eliminating separate database server processes, cloud clusters, or socket exposure.
 - **Hallucination Mitigation & Citation Verification:**
   - Untrusted document chunks are quarantined inside `<document_context>` XML boundaries.
   - LLM instructions enforce strict refusal: when evidence is insufficient or question falls outside context, the system returns `"Not found in records"` with `evidence_sufficient=False` and zero citations.
@@ -90,10 +90,22 @@ flowchart TD
 
 | Component | Choice | Rationale |
 |---|---|---|
-| **Inference Model** | **Gemma 4 12B** | Open-weights model by Google DeepMind with state-of-the-art instruction-following and reasoning. Fits comfortably within 8–16 GB Unified Memory on Apple Silicon or modern GPUs, providing precise structured JSON output and citation fidelity. |
-| **Embedding Model** | **nomic-embed-text** | High-performance, open-weights 768-dimensional text embedding model with a 2,048-token context window. Highly optimized for dense semantic retrieval across contracts and technical documentation. |
-| **Vector Storage** | **LanceDB** | Serverless, disk-backed embedded vector store based on the Lance columnar format (Apache Arrow). Requires no Docker container, zero daemon setup, and supports instant sub-millisecond vector search. |
-| **Document Processing** | **PyMuPDF + Tesseract** | PyMuPDF provides ultra-fast digital text extraction and PDF rendering; Tesseract OCR provides robust offline optical character recognition with layout analysis. |
+| **Inference Model** | **Gemma 4 12B** | Open-weights model by Google DeepMind with instruction-following and reasoning capabilities, run locally via Ollama with structured JSON output and citation generation. |
+| **Embedding Model** | **nomic-embed-text** | Open-weights 768-dimensional text embedding model with a 2,048-token context window, optimized for dense semantic retrieval across contracts and technical documentation. |
+| **Vector Storage** | **LanceDB** | Disk-backed embedded vector store based on the Lance columnar format (Apache Arrow). Runs directly in-process without requiring a separate database server or daemon. |
+| **Document Processing** | **PyMuPDF + Tesseract** | PyMuPDF provides digital text extraction and PDF rendering; Tesseract OCR provides offline optical character recognition with layout analysis. |
+
+### Why We Chose Gemma 4 12B
+
+Air-Gapped RAG uses Google's Gemma 4 12B as its local answer-generation model. We selected it for its balance of reasoning capability, long-context support, multimodal capabilities, and practical integration with Ollama for local inference.
+
+We considered other open-weight model families, including Qwen and Kimi. Qwen 3.5 9B is a compelling alternative for resource-conscious inference, while Kimi's flagship models target much larger, compute-intensive agentic workloads.
+
+Our choice is a project-specific engineering decision, not a claim that Gemma universally outperforms these models. Gemma is already integrated into our working RAG pipeline, and the application is designed to generate evidence-backed answers without relying on cloud AI APIs.
+
+Model capabilities and memory requirements vary by model version, quantization, context length, and hardware. The model's performance on contract retrieval and citation accuracy must be evaluated in the context of the complete application.
+
+References: [Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) · [Qwen 3.5 9B model card](https://huggingface.co/Qwen/Qwen3.5-9B) · [Kimi K3 model card](https://huggingface.co/moonshotai/Kimi-K3)
 
 ---
 
@@ -112,7 +124,7 @@ Air-Gapped-RAG/
 │   │   ├── schemas/           # Pydantic v2 data models & DTOs
 │   │   ├── services/          # PDF parsing, OCR, chunking, LanceDB, Ollama
 │   │   └── main.py            # FastAPI application factory
-│   ├── tests/                 # Full pytest suite (65 passing tests)
+│   ├── tests/                 # Automated pytest test suite
 │   └── pyproject.toml         # Packaging & dependency specifications
 ├── frontend/                  # Next.js 16 frontend application
 │   ├── src/
@@ -209,12 +221,14 @@ The Web Dashboard will be accessible at: [http://localhost:3000](http://localhos
 
 ---
 
-## Offline / Air-Gap Verification Protocol
+## Local Execution & Network Isolation Verification (Pending)
 
-To verify that the application operates **100% offline** without any network connectivity:
+The application is designed for local execution once dependencies and model weights are installed. Full physical air-gapped isolation and zero network egress have not yet been independently demonstrated and remain pending verification.
+
+To test the application in an isolated environment with network interfaces disabled:
 
 ### Step 1: Pre-requisite Preparation
-Ensure the local Python environment, Node packages, and Ollama models (`gemma4:12b` and `nomic-embed-text`) are pre-downloaded.
+Ensure the local Python environment, Node packages, and Ollama models (`gemma4:12b` and `nomic-embed-text`) are pre-downloaded while connected to the internet.
 
 ### Step 2: Sever All External Network Connectivity
 Turn off Wi-Fi and disconnect Ethernet:
@@ -233,18 +247,18 @@ curl -s http://127.0.0.1:11434/api/tags | grep nomic-embed-text
 curl -s http://127.0.0.1:8000/health
 ```
 
-### Step 4: Run the Complete Offline Demonstration
-Execute the automated demonstration script:
+### Step 4: Run the Demonstration Script
+Execute the demonstration script:
 ```bash
 backend/.venv/bin/python scripts/demo_air_gapped_rag.py --local
 ```
 
-### Step 5: Verify Zero Remote Network Connections
-Inspect the active sockets used by the process:
+### Step 5: Verify Socket Bindings
+Inspect the active sockets used by local processes:
 ```bash
 lsof -i -P -n | grep -E 'python|ollama|node'
 ```
-*Expected Result:* All established sockets must be bound strictly to `127.0.0.1` or `[::1]`. No external WAN IPs or remote domain names will be contacted.
+*Expected Result:* All established sockets must be bound strictly to loopback addresses (`127.0.0.1` or `[::1]`). Network-isolation verification is confirmed only when no external WAN interfaces or remote IP addresses are contacted.
 
 ### Step 6: Restore Network (When Finished)
 ```bash
@@ -285,7 +299,7 @@ backend/.venv/bin/python scripts/demo_air_gapped_rag.py --url http://127.0.0.1:8
 ## Testing & Quality Assurance
 
 ### Backend Test Suite
-The backend contains 66 automated tests covering:
+The backend automated test suite covers (latest reported audit: 66 passing tests; these remain reported results until rerun in your local environment):
 - PDF digital text extraction and 1-indexed page ordering.
 - Tesseract OCR fallback and multi-column alignment reconstruction.
 - Page-aware chunking boundaries (zero page-spanning chunks).
@@ -303,17 +317,20 @@ uv run pytest -v
 ```bash
 cd frontend
 pnpm run lint
-pnpm run build
+pnpm exec tsc --noEmit
+pnpm exec next build --webpack
 ```
 
 ---
 
 ## Known Limitations
 
+- **Prototype Scope:** This is a local-first question-answering prototype designed for contract PDFs; it is not evaluated or certified for production use with medical, classified, or defense records.
+- **Network Isolation Verification Pending:** While designed to use local endpoints without external API calls, formal verification of zero network egress in an air-gapped environment has not yet been independently completed.
+- **Hardware Requirements:** Running Gemma 4 12B locally requires sufficient RAM/VRAM. Actual memory footprint and latency depend on host hardware, quantization level, and context size. No performance or speed guarantees are made without benchmarks.
 - **File Formats & Sizes:** Only PDF documents (`.pdf`) up to 50 MB are supported. Encrypted or password-protected PDFs must be unlocked prior to ingestion.
-- **Hardware Memory:** Gemma 4 12B requires at least 8 GB of available RAM/VRAM. For systems with lower memory, consider 7B models or 4-bit quantizations (`ollama pull gemma:2b` or `phi3:mini`).
 - **Scanned Document DPI:** Tesseract OCR accuracy degrades if scanned documents have a resolution below 150 DPI or heavily degraded handwritten script.
-- **Embedded LanceDB Scope:** The current embedded LanceDB deployment is designed for single-node local execution, optimal for individual workstations and air-gapped enclaves rather than multi-tenant horizontal clusters.
+- **Embedded LanceDB Scope:** The embedded LanceDB deployment is designed for single-user local execution on a workstation rather than multi-tenant horizontal clusters.
 
 ---
 
