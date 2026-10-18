@@ -35,6 +35,10 @@ export function QuestionAnsweringPanel({
   const handleIndex = async (reindex = false) => {
     setIndexingState("indexing");
     setIndexingError(null);
+    if (reindex) {
+      setAnswerResult(null);
+      setAskError(null);
+    }
 
     try {
       const res = await indexDocument(documentId, reindex);
@@ -55,13 +59,17 @@ export function QuestionAnsweringPanel({
     const cleanQuery = query.trim();
     if (!cleanQuery || asking) return;
 
+    // Immediately clear previous answer, citations, and errors before starting new request
     setAsking(true);
     setAskError(null);
+    setAnswerResult(null);
 
     try {
       const res = await getAnswer(cleanQuery, documentId);
       setAnswerResult(res);
     } catch (err: unknown) {
+      // Ensure stale answer and citations remain cleared on failure
+      setAnswerResult(null);
       if (err instanceof ApiError) {
         setAskError(err.detail);
       } else {
@@ -73,6 +81,7 @@ export function QuestionAnsweringPanel({
   };
 
   const setSuggestedQuery = (suggested: string) => {
+    if (asking) return;
     setQuery(suggested);
   };
 

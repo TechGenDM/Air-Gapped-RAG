@@ -307,3 +307,302 @@ def test_answer_api_empty_query_returns_422(client):
         json={"query": "    "},
     )
     assert res.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
+async def test_ollama_llm_service_uses_configured_timeout_and_options(monkeypatch):
+    """Verify OllamaLLMService configures timeout and options.num_predict in chat payload."""
+    captured_kwargs = {}
+
+    class DummyClient:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, json):
+            import httpx
+
+            captured_kwargs["url"] = url
+            captured_kwargs["payload"] = json
+            return httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "content": '{"answer": "Test answer", "used_source_ids": ["SOURCE_1"], "evidence_sufficient": true}'
+                    }
+                },
+                request=httpx.Request("POST", url),
+            )
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", DummyClient)
+
+    service = OllamaLLMService(
+        base_url="http://127.0.0.1:11434",
+        model="gemma4:12b",
+        timeout_seconds=120.0,
+        num_predict=1024,
+    )
+    chunk = SearchResultChunk(
+        chunk_id="chk1",
+        document_id="doc1",
+        filename="test.pdf",
+        page_number=1,
+        chunk_index=0,
+        text="Sample text",
+        score=0.9,
+        distance=0.1,
+    )
+    answer, sources, suff = await service.generate_answer("What is this?", [chunk])
+    assert answer == "Test answer"
+    assert captured_kwargs["timeout"] == 120.0
+    assert captured_kwargs["payload"]["think"] is False
+    assert captured_kwargs["payload"]["options"]["num_predict"] == 1024
+    assert captured_kwargs["payload"]["options"]["temperature"] == 0.0
+
+
+@pytest.mark.anyio
+async def test_ollama_llm_service_timeout_exception_handling(monkeypatch):
+    """Verify OllamaLLMService raises OllamaConnectionError with actionable timeout message on httpx.TimeoutException."""
+
+    class TimeoutClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, json):
+            import httpx
+
+            raise httpx.ReadTimeout("Read timed out after 120s")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", TimeoutClient)
+
+    service = OllamaLLMService(
+        base_url="http://127.0.0.1:11434",
+        model="gemma4:12b",
+        timeout_seconds=120.0,
+        num_predict=1024,
+    )
+    chunk = SearchResultChunk(
+        chunk_id="chk1",
+        document_id="doc1",
+        filename="test.pdf",
+        page_number=1,
+        chunk_index=0,
+        text="Sample text",
+        score=0.9,
+        distance=0.1,
+    )
+    with pytest.raises(OllamaConnectionError) as exc_info:
+        await service.generate_answer("Any query?", [chunk])
+
+    error_msg = str(exc_info.value)
+    assert "Timed out waiting for local Ollama LLM (gemma4:12b) after 120.0s" in error_msg
+    assert "AIR_GAPPED_LLM_TIMEOUT_SECONDS" in error_msg
+
+
+def test_answer_api_llm_timeout_returns_503(client, create_multipage_pdf):
+    """Verify that when Ollama LLM times out during Q&A, the API returns 503 with timeout detail."""
+    doc_id = _upload_and_index_pdf(client, create_multipage_pdf)
+
+    class TimeoutLLMMock:
+        async def generate_answer(self, query: str, chunks: list):
+            raise OllamaConnectionError(
+                "Timed out waiting for local Ollama LLM (gemma4:12b) after 120.0s."
+            )
+
+    app.dependency_overrides[get_llm_service] = lambda: TimeoutLLMMock()
+
+    try:
+        res = client.post(
+            "/api/v1/answer",
+            json={"query": "What is the penalty?", "document_id": doc_id},
+        )
+        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        data = res.json()
+        assert "timed out waiting for local ollama llm" in data["detail"].lower()
+        assert "120.0s" in data["detail"]
+    finally:
+        del app.dependency_overrides[get_llm_service]
+
+
+def test_statutory_qualification_preservation_regression(client, create_multipage_pdf):
+    """Verify that material statutory qualifications (written form, signature, authorized agent) are preserved in answer generation."""
+    page_text = (
+        "SECTION 25: Exceptions to Void Agreements.\n"
+        "An agreement made without consideration is void unless:\n"
+        "(1) it is expressed in writing and registered under the registration law on account of natural love and affection;\n"
+        "(2) it is a promise to compensate a person who has already voluntarily done something for the promisor;\n"
+        "(3) it is a promise, made in writing and signed by the person to be charged therewith or by an authorized agent, "
+        "to pay wholly or in part a debt barred by the law of limitation."
+    )
+    pdf_bytes = create_multipage_pdf([page_text])
+    upload_res = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("synthetic_statute.pdf", BytesIO(pdf_bytes), "application/pdf")},
+    )
+    assert upload_res.status_code == status.HTTP_201_CREATED
+    doc_id = upload_res.json()["document_id"]
+
+    index_res = client.post(f"/api/v1/documents/{doc_id}/index")
+    assert index_res.status_code == status.HTTP_200_OK
+
+    class QualifiedLLMMock:
+        async def generate_answer(self, query: str, chunks: list) -> tuple[str, list, bool]:
+            assert len(chunks) >= 1
+            answer_text = (
+                "An agreement without consideration is valid under Section 25 if: "
+                "1. It is in writing and registered based on natural love and affection; "
+                "2. It is a promise to compensate voluntary past acts; "
+                "3. It is a promise, made in writing and signed by the debtor or their authorized agent, "
+                "to pay a time-barred debt."
+            )
+            return answer_text, [chunks[0]], True
+
+    app.dependency_overrides[get_llm_service] = lambda: QualifiedLLMMock()
+
+    try:
+        res = client.post(
+            "/api/v1/answer",
+            json={
+                "query": "Under what specific exceptions is an agreement made without consideration considered valid under Section 25?",
+                "document_id": doc_id,
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()
+        assert data["evidence_sufficient"] is True
+        ans_lower = data["answer"].lower()
+        # Ensure material statutory qualifications are preserved
+        assert "writing" in ans_lower
+        assert "signed" in ans_lower
+        assert "agent" in ans_lower
+        assert "time-barred" in ans_lower or "limitation" in ans_lower
+        assert len(data["sources"]) == 1
+        assert data["sources"][0]["page_number"] == 1
+        assert "signed" in data["sources"][0]["excerpt"].lower()
+    finally:
+        del app.dependency_overrides[get_llm_service]
+
+
+def test_cross_page_clause_continuation_retrieval_and_answer(client, create_multipage_pdf):
+    """Verify that a multi-page PDF with a clause split across pages 1 and 2 retrieves both pages and cites them."""
+    page1_text = (
+        "SECTION 25: Exceptions to Void Agreements.\n"
+        "An agreement made without consideration is void unless:\n"
+        "(1) it is expressed in writing and registered on account of natural love and affection;\n"
+        "(2) it is a promise to compensate voluntary past acts; or unless;"
+    )
+    page2_text = (
+        "(3) it is a promise, made in writing and signed by the debtor or by an authorized agent, "
+        "to pay wholly or in part a debt barred by the law of limitation.\n"
+        "In any of these cases, such an agreement is a contract."
+    )
+    pdf_bytes = create_multipage_pdf([page1_text, page2_text])
+    upload_res = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("split_statute.pdf", BytesIO(pdf_bytes), "application/pdf")},
+    )
+    assert upload_res.status_code == status.HTTP_201_CREATED
+    doc_id = upload_res.json()["document_id"]
+
+    index_res = client.post(f"/api/v1/documents/{doc_id}/index")
+    assert index_res.status_code == status.HTTP_200_OK
+
+    captured_chunks = []
+
+    class RealRetrievalLLMMock:
+        async def generate_answer(self, query: str, chunks: list) -> tuple[str, list, bool]:
+            nonlocal captured_chunks
+            captured_chunks = list(chunks)
+            # The LLM receives both chunks from the expanded retrieval pipeline
+            answer_text = (
+                "Under Section 25, an agreement without consideration is valid in three exceptions: "
+                "1. Expressed in writing and registered based on natural love and affection; "
+                "2. Promise to compensate voluntary past acts; "
+                "3. Promise made in writing and signed by the debtor or by an authorized agent to pay a time-barred debt."
+            )
+            return answer_text, chunks, True
+
+    app.dependency_overrides[get_llm_service] = lambda: RealRetrievalLLMMock()
+
+    try:
+        res = client.post(
+            "/api/v1/answer",
+            json={
+                "query": "Under what specific exceptions is an agreement made without consideration considered valid under Section 25?",
+                "document_id": doc_id,
+                "limit": 1,  # Initial limit is 1, so continuation expansion MUST trigger to reach page 2
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()
+        assert data["evidence_sufficient"] is True
+
+        # Verify that the pipeline actually delivered both page 1 and page 2 to the LLM
+        pages_supplied = [c.page_number for c in captured_chunks]
+        assert 1 in pages_supplied
+        assert 2 in pages_supplied
+
+        # Verify citations
+        assert len(data["sources"]) == 2
+        assert data["sources"][0]["page_number"] == 1
+        assert data["sources"][1]["page_number"] == 2
+        assert "signed by the debtor or by an authorized agent" in data["sources"][1]["excerpt"]
+
+        # Verify answer preserved all material qualifications
+        ans_lower = data["answer"].lower()
+        assert "writing" in ans_lower
+        assert "signed" in ans_lower
+        assert "agent" in ans_lower
+    finally:
+        del app.dependency_overrides[get_llm_service]
+
+
+def test_cross_page_missing_evidence_safe_abstention(client, create_multipage_pdf):
+    """Verify that an absent topic on a multi-page PDF strictly returns safe abstention without fabricated citations."""
+    page1_text = "SECTION 25: Agreement without consideration is void unless registered on natural love."
+    page2_text = "SECTION 26: Agreement in restraint of marriage of any person other than a minor is void."
+    pdf_bytes = create_multipage_pdf([page1_text, page2_text])
+
+    upload_res = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("statute_test.pdf", BytesIO(pdf_bytes), "application/pdf")},
+    )
+    doc_id = upload_res.json()["document_id"]
+    client.post(f"/api/v1/documents/{doc_id}/index")
+
+    class AbstainingLLMMock:
+        async def generate_answer(self, query: str, chunks: list) -> tuple[str, list, bool]:
+            return "Not found in records", [], False
+
+    app.dependency_overrides[get_llm_service] = lambda: AbstainingLLMMock()
+
+    try:
+        res = client.post(
+            "/api/v1/answer",
+            json={
+                "query": "What is the penalty for maritime salvage under admiralty law?",
+                "document_id": doc_id,
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()
+        assert data["answer"] == "Not found in records"
+        assert data["evidence_sufficient"] is False
+        assert data["sources"] == []
+    finally:
+        del app.dependency_overrides[get_llm_service]

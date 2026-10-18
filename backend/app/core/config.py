@@ -36,7 +36,8 @@ class Settings(BaseSettings):
 
     # Local LLM (Gemma 4 12B)
     llm_model: str = "gemma4:12b"
-    llm_timeout_seconds: float = 60.0
+    llm_timeout_seconds: float = 120.0
+    llm_num_predict: int = 1024
 
     # Chunking controls
     chunk_target_words: int = 400

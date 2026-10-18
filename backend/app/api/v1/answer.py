@@ -100,6 +100,15 @@ async def generate_answer(
         document_id=request.document_id,
     )
 
+    # 4b. Expand with relevant continuation chunks for clauses spanning boundaries
+    if matched_chunks:
+        matched_chunks = vector_service.expand_continuation_chunks(
+            chunks=matched_chunks,
+            query=clean_query,
+            query_vector=query_vector,
+            max_total_chunks=min(request.limit + 2, 6),
+        )
+
     # If no relevant chunks exist in the vector database
     if not matched_chunks:
         elapsed = round(time.perf_counter() - start_time, 3)
