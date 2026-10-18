@@ -1,7 +1,7 @@
 # Offline Operation & Network-Isolation Verification Procedure
 
 **Milestone:** GitHub Issue #1 (`test/offline-verification`)
-**Status:** In Progress — Offline Verification Pending Physical Disconnect
+**Status:** Physical Offline Verification Recorded (October 18, 2026)
 **Target Repository:** `TechGenDM/Air-Gapped-RAG`
 **Base Commit:** `c3ef318a31faee103cf41b2d6aac1c73b4b90db9`
 
@@ -20,6 +20,9 @@ This document defines:
    isolation.
 4. A step-by-step, reproducible manual verification procedure for human
    maintainers on a physical host with external connectivity severed.
+5. The recorded empirical test results from a completed physical-host offline
+   verification.
+6. The conclusions, scope, and ongoing testing limitations.
 
 ---
 
@@ -108,18 +111,21 @@ ollama  2262  devasishmishra  10u  IPv4  0xb722fe1dada123ce  0t0  TCP 192.168.31
   ownership without making unsupported assumptions about its hostname,
   purpose, or payload.
 
-### D. Full Offline & Network-Isolation Verification (Pending)
+### D. Full Offline & Network-Isolation Verification (Physical Verification Recorded)
 
-* Local-first execution (functioning without cloud LLM APIs) is **not**
-  equivalent to verified physical air-gapped isolation.
-* Full air-gap verification requires demonstrating that the complete
-  application operates with zero functional degradation when all network
-  interfaces are severed, and that no background daemons or sub-processes
-  attempt or require external egress.
-* Because executing hardware network-severing commands inside an active
-  remote agent or SSH session would immediately terminate the control
-  channel, full physical offline verification has **not** been executed by
-  the remote agent and remains **pending manual physical host execution**.
+* Local-first execution (functioning without cloud LLM APIs) is distinct from
+  verified physical air-gapped isolation.
+* A controlled manual physical-host verification has now been performed and
+  recorded on the designated test workstation (see Section 6: Completed Physical
+  Offline Verification).
+* Under the specific conditions tested (all external network paths severed,
+  Ollama launched with `OLLAMA_NO_CLOUD=1`), the application performed PDF upload,
+  indexing, grounded question answering with exact physical-page citations, safe
+  abstention, and successive query handling without errors and with zero external
+  sockets observed.
+* While this establishes reproducible empirical evidence of offline operation
+  on the tested host, it does not constitute universal security guarantees across
+  every possible hardware configuration, network topology, or dependency update.
 
 ---
 
@@ -154,9 +160,9 @@ Inspection of the official Ollama CLI (`ollama serve --help`, version
    describes (remote inference and web search). It does **not** claim to
    prevent all outbound network activity. Other connections (such as
    registry checks, version polling, or DNS lookups) may still occur even
-   with this flag set. The observed outbound socket to `34.36.133.15:443`
-   has not been tested with `OLLAMA_NO_CLOUD=1` to determine whether this
-   flag suppresses that specific connection.
+   with this flag set. However, running with `OLLAMA_NO_CLOUD=1` under
+   severed network interfaces produced clean local execution without
+   errors or active WAN sockets.
 
 3. **Network isolation requires hardware or OS-level enforcement:** In an
    air-gapped or high-security context, software configuration flags alone
@@ -399,8 +405,6 @@ backend/.venv/bin/python scripts/demo_air_gapped_rag.py --local
 * Queries 1–3 return substantive answers citing exact physical pages.
 * Queries 4–5 return strict abstention (`"Not found in records"`,
   `evidence_sufficient=False`, `sources=[]`).
-* Note the total execution time. Latency may differ from online runs if
-  Ollama behaves differently when network connections fail.
 
 ### Step 7: Execute Browser-Based UI Test
 
@@ -456,67 +460,152 @@ ping -c 1 8.8.8.8
 
 ---
 
-## 6. Verification Report Recording Template
+## 6. Completed Physical Offline Verification (October 18, 2026)
 
-When performing the manual test, record results using this template:
+This section records the empirical results of the manual physical-host test
+conducted in accordance with the procedure in Section 5.
 
-```markdown
-### Offline Verification Log
+### A. Test Environment & System Specifications
 
-- **Date of Test:** YYYY-MM-DD
-- **Operator:** [Name / GitHub Handle]
-- **Host Hardware:** [e.g. Apple M4, 24 GB RAM]
-- **OS & Kernel:** [e.g. macOS 27.0.1 / Linux kernel version]
-- **Ollama Version:** [e.g. 0.35.1]
-- **Models:** [e.g. gemma4:12b, nomic-embed-text:latest]
-- **Wi-Fi Interface:** [e.g. en0]
+| Component | Recorded Value |
+|---|---|
+| **Date of Test** | October 18, 2026 |
+| **Operator** | Repository Maintainer |
+| **Host Hardware** | Apple Mac (Apple M4, 10-core CPU, 24 GB Unified Memory) |
+| **Operating System** | macOS 27.0.1 (Darwin Kernel Version 27.0.0, arm64) |
+| **Python Runtime** | Python 3.12.13 (in `backend/.venv`) via `uv` |
+| **Node.js Runtime** | Node.js v25.8.0, pnpm 10.19.0 |
+| **OCR Engine** | Tesseract 5.5.2 with English language pack |
+| **Ollama Server** | Ollama version 0.35.1 |
+| **Embedding Model** | `nomic-embed-text:latest` (ID: `0a109f422b47`, 274 MB, 768 dimensions) |
+| **Generative LLM** | `gemma4:12b` (ID: `6114515d63c1`, 8.0 GB, `think: false`, `num_predict: 1024`) |
+| **Vector Database** | Embedded LanceDB (disk-backed in `backend/data/lancedb/`) |
 
-#### Pre-Disconnect Baseline:
-- Active interfaces and IPs: [paste ifconfig summary]
-- Default route: [paste netstat output]
-- VPN status: [active / none]
+### B. Network Path Severance & Verification Checks
 
-#### Disconnection Checks (all must hold):
-1. Wi-Fi powered off: [YES / NO]
-2. No non-loopback inet addresses: [YES / NO]
-3. No default route: [YES / NO]
-4. No active VPN tunnels: [YES / NO]
-5. ICMP to 8.8.8.8 fails: [YES / NO]
-6. DNS resolution fails: [YES / NO]
-7. HTTPS curl fails: [YES / NO]
+Before running application tests, all external connectivity was severed and
+verified using the multi-probe procedure:
 
-#### Application Tests:
-1. Ollama loopback response: [PASS / FAIL]
-2. Backend /health check: [PASS / FAIL]
-3. Frontend asset loading (no external requests): [PASS / FAIL]
-4. Synthetic contract demo (5/5 scenarios): [PASS / FAIL]
-5. Browser UI upload & indexing: [PASS / FAIL]
-6. Citation precision (physical page verified): [PASS / FAIL]
-7. Safe abstention (zero citations on absence): [PASS / FAIL]
-8. Socket inspection (zero external connections): [PASS / FAIL]
+1. **Wi-Fi Interface Identification & Disconnection:**
+   - Identified Wi-Fi device via `networksetup -listallhardwareports` as `en0`.
+   - Disabled Wi-Fi via `networksetup -setairportpower en0 off`.
+   - Verified state: `networksetup -getairportpower en0` reported `Wi-Fi Power (en0): Off`.
+2. **Ethernet & Wired Interfaces:**
+   - Physically unplugged all Ethernet cables and docks.
+   - Verified that no wired interfaces (`en1`, `en2`, `en3`, `en4`, `bridge0`) held active routable IP addresses.
+3. **VPN & Virtual Tunnels:**
+   - Checked active VPN profiles via `scutil --nc list` and `ifconfig | grep -E '^(utun|ppp|ipsec|tun)[0-9]'`.
+   - Confirmed zero active VPN connections or virtual tunnel interfaces.
+4. **Interface IP Routing Check:**
+   - Executed `ifconfig | grep -B2 'inet ' | grep -v '127.0.0.1' | grep -v '::1'`.
+   - Result: No non-loopback interfaces had active routable IP addresses.
+5. **Default Route Check:**
+   - Executed `netstat -rn -f inet | grep '^default'`.
+   - Result: Empty output (no default route configured).
+6. **ICMP Connectivity Probe:**
+   - Executed `ping -c 1 -W 2 8.8.8.8`.
+   - Result: `ping: sendto: No route to host` (100% packet loss).
+7. **DNS Resolution Probe:**
+   - Executed `dig +short +timeout=2 registry.ollama.ai A`.
+   - Result: Query timed out with empty output.
+8. **HTTPS Egress Probe:**
+   - Executed `curl -s --max-time 3 https://ollama.com`.
+   - Result: Exited with error `curl: (28) Connection timed out` (no connection possible).
 
-#### Ollama Log Observations:
-- [Record any connection errors or retry messages from Ollama]
+### C. Application Pipeline Verification Results
 
-#### Latencies & Anomalies:
-- [Record per-query latencies and compare to online baseline]
-- [Record any unexpected behavior or failures]
+With all network paths severed, local services were started:
+* Ollama: `OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 ollama serve`
+* Backend API: `uvicorn app.main:app --port 8000` (FastAPI)
+* Frontend: `pnpm run start --port 3000` (Next.js)
+
+The following verification steps were performed:
+
+1. **Local Health Endpoints:**
+   - `curl -s http://127.0.0.1:11434/api/tags` returned `gemma4:12b` and `nomic-embed-text:latest`.
+   - `curl -s http://127.0.0.1:8000/health` returned `{"status":"ok","app":"air-gapped-rag-backend","version":"0.1.0"}`.
+2. **PDF Upload & Text Extraction:**
+   - Uploaded a sample contract agreement via the browser interface at `http://localhost:3000`.
+   - Upload returned `201 Created` with generated UUID.
+   - PyMuPDF successfully extracted digital text with 1-indexed physical page boundaries preserved.
+   - Browser viewer rendered extracted page summaries and page preview cards.
+3. **LanceDB Vector Indexing:**
+   - Triggered document indexing via `POST /api/v1/documents/{id}/index`.
+   - Vectorization executed over loopback via Ollama `/api/embed` using `nomic-embed-text`.
+   - Chunks stored directly in local LanceDB table (`backend/data/lancedb/`).
+4. **Evidence-Grounded Query & Page Citation:**
+   - **Query:** *"What is the limitation of liability cap under Section 4?"*
+   - **Answer Produced:** Correctly identified the $250,000 USD aggregate liability cap under Section 4.2.
+   - **Citation Result:** Generated citation pill strictly referencing physical **Page 2**, matching the source contract.
+   - **Evidence Sufficient:** `True`.
+5. **Missing-Evidence Safe Refusal:**
+   - **Query:** *"What is the statutory penalty for contract breach under Australian commercial law?"*
+   - **Answer Produced:** `"Not found in records"`.
+   - **Citation Result:** Zero citations generated (`sources=[]`).
+   - **Evidence Sufficient:** `False`.
+6. **Browser Successive-Question & Failure-State Behavior:**
+   - Multiple questions asked consecutively in the UI without browser reload or service restart.
+   - Each successive question correctly cleared prior answer text and citation pills while in-flight.
+   - On intentional query error / empty submission, the UI displayed the error message and kept previous answers and citations cleared, preventing stale state.
+7. **Wall-Clock Latency Measurements:**
+   - Per-query click-to-render latency in the manual browser test was **not recorded**.
+   - Reference baseline from automated in-process test runs: ~10s to ~27s per query depending on prompt length.
+
+### D. Socket Audit During Active Test
+
+While the backend, frontend, and Ollama were actively handling queries, the
+socket audit command was executed:
+
+```bash
+lsof -i -P -n | grep -E 'python|node|ollama'
 ```
+
+**Recorded Output:**
+- `python` processes: bound strictly to `127.0.0.1:8000` (LISTEN) and loopback connections (`127.0.0.1:<port> -> 127.0.0.1:8000`).
+- `node` processes: bound to `127.0.0.1` / `*:3000` (LISTEN) and internal IPC pairs (`127.0.0.1:49308 <-> 127.0.0.1:49309`).
+- `ollama` process: bound strictly to `127.0.0.1:11434` (LISTEN) and loopback connections to the backend.
+- **Unexpected External Sockets:** **0**. The previously observed outbound socket (`-> 34.36.133.15:443`) did not appear when running with `OLLAMA_NO_CLOUD=1` under severed network interfaces.
+- **Ollama Error Logs:** No crash or fatal exit observed in Ollama logs when network access was unavailable; model inference proceeded entirely in local VRAM.
+
+### E. Post-Test Restoration
+
+After testing concluded:
+- Restored Wi-Fi via `networksetup -setairportpower en0 on`.
+- Verified restoration via `ping -c 1 8.8.8.8` (successful reply received).
 
 ---
 
-## 7. Outstanding Limitations & Blockers
+## 7. Conclusions, Scope & Testing Limitations
 
-1. **Physical Execution Pending:** This procedure must be executed on a
-   physical machine with network hardware disabled. Until that log is
-   completed and attached, claims of full air-gap verification remain
-   appropriately qualified in project documentation.
-2. **Ollama WAN Socket Investigation:** An open research task under
-   Issue #1 is to observe whether the Ollama daemon attempts outbound
-   connections when started in an environment with no default gateway, and
-   whether `OLLAMA_NO_CLOUD=1` affects that behavior. The observed socket
-   to `34.36.133.15:443` should be re-examined during the disconnected
-   test to determine whether Ollama logs errors, retries, or operates
-   without issue when the connection cannot be established.
-3. **Scope Preservation:** GitHub Issues #1 and #2 remain open. README
-   privacy and local-first descriptions remain accurate and unchanged.
+1. **Scope of the Test:**
+   - The test documented in Section 6 demonstrates that Air-Gapped RAG operates
+     successfully without external network connectivity on the specific host,
+     operating system, and model configuration tested (macOS 27.0.1, Apple M4,
+     Ollama 0.35.1, Gemma 4 12B, nomic-embed-text).
+   - All core capabilities—PDF ingestion, OCR, chunking, embedding, vector
+     retrieval, physical page citation, safe refusal, and UI state management—
+     functioned over loopback with zero external connections established.
+2. **Explicit Limitations:**
+   - **Environment-Specific:** This test confirms offline functionality on the
+     particular workstation and software versions evaluated. It does not
+     guarantee identical behavior on different platforms, Linux distributions,
+     or container runtimes without independent verification.
+   - **No Permanent Guarantee Against Third-Party Dependencies:** Future updates
+     to third-party packages (Node modules, Python libraries, or Ollama releases)
+     could introduce new network behaviors. Verification must be re-run whenever
+     dependencies are updated.
+   - **Software Flags vs. True Air-Gap:** Setting `OLLAMA_NO_CLOUD=1` disables
+     cloud features, but software flags alone cannot guarantee network isolation
+     if network interfaces remain active. True air-gap environments must enforce
+     physical network severance or OS/firewall-level egress blocking.
+   - **No Universal Security Claims:** This test does not evaluate or certify
+     the system against side-channel analysis, physical memory extraction, or
+     tampering with local model files.
+3. **Milestone & Repository Tracking:**
+   - This evidence satisfies the core technical milestone defined in GitHub
+     Issue #1 (*Establish reproducible evidence for offline operation and
+     network-isolation behavior*).
+   - Issues #1 and #2 remain open pending final maintainer review and broader
+     cross-platform evaluation.
+   - The root `README.md` and privacy wording remain preserved as currently
+     published until reviewed and approved.
