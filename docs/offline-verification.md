@@ -1,7 +1,7 @@
 # Offline Operation & Network-Isolation Verification Procedure
 
 **Milestone:** GitHub Issue #1 (`test/offline-verification`)
-**Status:** Physical Offline Verification Recorded (October 18, 2026)
+**Status:** In Progress — Physical Offline Functional Test & Loopback Listener Verified Separately; Combined Disconnected UI Retest Pending
 **Target Repository:** `TechGenDM/Air-Gapped-RAG`
 **Base Commit:** `c3ef318a31faee103cf41b2d6aac1c73b4b90db9`
 
@@ -20,9 +20,10 @@ This document defines:
    isolation.
 4. A step-by-step, reproducible manual verification procedure for human
    maintainers on a physical host with external connectivity severed.
-5. The recorded empirical test results from a completed physical-host offline
-   verification.
-6. The conclusions, scope, and ongoing testing limitations.
+5. The recorded empirical test results, strictly distinguishing between the
+   earlier physical disconnected functional test and the later loopback listener
+   re-test.
+6. The conclusions, scope, and explicitly pending follow-up verifications.
 
 ---
 
@@ -114,21 +115,34 @@ LAN addresses have been redacted from the log line above.)*
   ownership without making unsupported assumptions about its hostname,
   purpose, or payload.
 
-### D. Full Offline & Network-Isolation Verification (Physical Verification Recorded)
+### D. Full Offline & Network-Isolation Verification (Status & Provenance Distinction)
 
 * Local-first execution (functioning without cloud LLM APIs) is distinct from
   verified physical air-gapped isolation.
-* A controlled manual physical-host verification has now been performed and
-  recorded on the designated test workstation (see Section 6: Completed Physical
-  Offline Verification).
-* Under the specific conditions tested (all external network paths severed,
-  Ollama launched with `OLLAMA_NO_CLOUD=1`, and the frontend bound strictly to
-  `127.0.0.1`), the application performed PDF upload, indexing, grounded
-  question answering with exact physical-page citations, safe abstention, and
-  successive query handling without errors and with zero external sockets observed.
-* While this establishes reproducible empirical evidence of offline operation
-  on the tested host, it does not constitute universal security guarantees across
-  every possible hardware configuration, network topology, or dependency update.
+* Rigorous evidence provenance requires distinguishing between the two distinct
+  test events recorded in Section 6:
+  1. **Physical Disconnected Functional Test (October 18, 2026, Morning):**
+     Evaluated PDF upload, indexing, grounded Q&A with physical page citations,
+     safe refusal, and UI state clearing under full hardware network severance
+     (Wi-Fi off via `en0`, Ethernet unplugged, zero active VPNs). However, in this
+     run, the Next.js frontend was launched with default options, producing a
+     wildcard listener (`TCP *:3000 (LISTEN)`), which bound across all host
+     interfaces.
+  2. **Local Loopback Listener Verification (October 18, 2026, Midday):**
+     Evaluated the Next.js CLI binding options using
+     `pnpm run start --hostname 127.0.0.1 --port 3000`, confirming that Node binds
+     exclusively to IPv4 loopback (`TCP 127.0.0.1:3000 (LISTEN)`) and responds
+     to `curl -I` with `HTTP/1.1 200 OK`. However, this re-test was conducted in
+     a connected local development environment and did not re-exercise the
+     browser Q&A pipeline.
+* **Explicit Pending Status for Combined Verification:** The full browser Q&A
+  workflow has **not** yet been exercised with both conditions active
+  simultaneously (external network paths physically severed AND Next.js
+  explicitly bound to `127.0.0.1:3000`). This combined verification remains
+  **pending manual physical-host execution**.
+* In addition, offline Tesseract OCR fallback on a scanned/image-only PDF was not
+  exercised during the physical disconnected run (which used a digitally readable
+  PDF, `ocr=False`), and remains a separate **pending follow-up test**.
 
 ---
 
@@ -473,16 +487,18 @@ ping -c 1 8.8.8.8
 
 ---
 
-## 6. Completed Physical Offline Verification (October 18, 2026)
+## 6. Recorded Empirical Test Evidence
 
-This section records the empirical results of the manual physical-host test
-conducted in accordance with the procedure in Section 5.
+This section records the empirical results of the test sessions conducted on the
+designated physical host. In accordance with strict evidence provenance, the
+earlier physical disconnected test and the subsequent loopback listener re-test
+are documented as separate test events.
 
-### A. Test Environment & System Specifications
+### A. Test Environment & Baseline System Specifications
 
 | Component | Recorded Value |
 |---|---|
-| **Date of Test** | October 18, 2026 |
+| **Date of Tests** | October 18, 2026 |
 | **Operator** | Repository Maintainer |
 | **Host Hardware** | Apple Mac (Apple M4, 10-core CPU, 24 GB Unified Memory) |
 | **Operating System** | macOS 27.0.1 (Darwin Kernel Version 27.0.0, arm64) |
@@ -494,11 +510,13 @@ conducted in accordance with the procedure in Section 5.
 | **Generative LLM** | `gemma4:12b` (ID: `6114515d63c1`, 8.0 GB, `think: false`, `num_predict: 1024`) |
 | **Vector Database** | Embedded LanceDB (disk-backed in `backend/data/lancedb/`) |
 
-### B. Network Path Severance & Verification Checks
+---
 
+### B. Test Event 1: Physical Disconnected Functional Test (October 18, 2026, Morning)
+
+#### 1. Network Path Severance & Verification Checks
 Before running application tests, all external connectivity was severed and
 verified using the multi-probe procedure:
-
 1. **Wi-Fi Interface Identification & Disconnection:**
    - Identified Wi-Fi device via `networksetup -listallhardwareports` as `en0`.
    - Disabled Wi-Fi via `networksetup -setairportpower en0 off`.
@@ -525,24 +543,21 @@ verified using the multi-probe procedure:
    - Executed `curl -s --max-time 3 https://ollama.com`.
    - Result: Exited with error `curl: (28) Connection timed out` (no connection possible).
 
-### C. Application Pipeline Verification Results
+#### 2. Service Startup Configuration (Event 1)
+With network paths severed, local services were launched:
+* **Ollama Daemon:** `OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 ollama serve`
+* **FastAPI Backend:** `uvicorn app.main:app --port 8000`
+* **Next.js Frontend:** `pnpm run start --port 3000` *(Default Next.js start without explicit `--hostname`)*
 
-With all network paths severed, local services were started:
-* Ollama: `OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 ollama serve`
-* Backend API: `uvicorn app.main:app --port 8000` (FastAPI)
-* Frontend: `pnpm run start --hostname 127.0.0.1 --port 3000` (Next.js production server explicitly bound to loopback)
-
-The following verification steps were performed:
-
+#### 3. Application Pipeline & Browser Q&A Outcomes (Event 1)
 1. **Local Health Endpoints:**
    - `curl -s http://127.0.0.1:11434/api/tags` returned `gemma4:12b` and `nomic-embed-text:latest`.
    - `curl -s http://127.0.0.1:8000/health` returned `{"status":"ok","app":"air-gapped-rag-backend","version":"0.1.0"}`.
-   - `curl -I http://127.0.0.1:3000` returned `HTTP/1.1 200 OK`.
-2. **PDF Ingestion & Digital Parsing (OCR Not Exercised in this Test):**
-   - Uploaded a sample digital contract PDF via the browser interface (`http://127.0.0.1:3000`).
+2. **PDF Ingestion & Digital Parsing (OCR Not Exercised):**
+   - Uploaded a sample digital contract PDF via the browser interface (`http://localhost:3000`).
    - PyMuPDF extracted digital text with 1-indexed physical page boundaries preserved (`ocr=False`).
    - Document upload returned `201 Created` with generated UUID and page previews.
-   - **Important Limitation & OCR Clarification:** Because the uploaded test document contained extractable digital text, Tesseract OCR fallback was **not independently exercised** during this specific physical disconnected session. Evidence for local, offline OCR operation currently derives from the local automated test suite (`backend/tests/test_ocr_retrieval_regression.py` and `backend/tests/test_pdf_service.py`), which verifies deterministic multi-column table reconstruction using local Tesseract 5.5.2 without network requests. Independent disconnected testing with an image-only/scanned PDF remains an open follow-up verification item.
+   - *Provenance Note on OCR:* Because the uploaded test document contained extractable digital text, Tesseract OCR fallback was **not independently exercised** during this physical disconnected session. Evidence for local, offline OCR operation currently derives from the automated test suite (`backend/tests/test_ocr_retrieval_regression.py` and `backend/tests/test_pdf_service.py`), which verifies deterministic multi-column table reconstruction using local Tesseract 5.5.2 without network requests.
 3. **LanceDB Vector Indexing:**
    - Triggered document indexing via `POST /api/v1/documents/{id}/index`.
    - Vectorization executed over loopback via Ollama `/api/embed` using `nomic-embed-text`.
@@ -565,77 +580,107 @@ The following verification steps were performed:
    - Per-query click-to-render latency in the manual browser test was **not recorded**.
    - Reference baseline from automated in-process test runs: ~10s to ~27s per query depending on prompt length.
 
-### D. Socket Audit During Active Test
-
-While the backend, frontend, and Ollama were actively handling queries, the
-socket audit command was executed:
-
+#### 4. Active Socket Audit & Listener Finding (Event 1)
+While queries were actively executing, the socket audit command was run:
 ```bash
 lsof -i -P -n | grep -E 'python|node|ollama'
 ```
+* **Recorded State:**
+  - `python` processes: bound strictly to `127.0.0.1:8000` (LISTEN) and loopback connections (`127.0.0.1:<port> -> 127.0.0.1:8000`).
+  - `ollama` process: bound strictly to `127.0.0.1:11434` (LISTEN) and loopback connections to the backend.
+  - `node` process: bound to `TCP *:3000 (LISTEN)` *(wildcard listener across all host adapters)* and internal IPC pairs (`127.0.0.1:49308 <-> 127.0.0.1:49309`).
+  - **Unexpected External Outbound Sockets:** **0**. The previously noted WAN socket (`-> 34.36.133.15:443`) did not appear when running with `OLLAMA_NO_CLOUD=1` under severed network interfaces.
+* **Finding:** While no outbound WAN connections were made, the frontend Node process was listening on `*:3000` (`0.0.0.0`). This wildcard listener did not satisfy the strict loopback-only invariant (`127.0.0.1`).
 
-**Recorded Output & Listener Invariant Analysis:**
-- `python` processes: bound strictly to `127.0.0.1:8000` (LISTEN) and loopback connections (`127.0.0.1:<port> -> 127.0.0.1:8000`).
-- `ollama` process: bound strictly to `127.0.0.1:11434` (LISTEN) and loopback connections to the backend.
-- **Frontend Node Listener Evaluation & Re-test:**
-  - *Initial Observation:* When the Next.js production server was initially launched with `pnpm run start --port 3000`, the process created a wildcard listener (`TCP *:3000 (LISTEN)`). Although no outbound WAN sockets were established, a wildcard listener binds to `0.0.0.0` across all host interfaces, which does **not** satisfy the project's strict loopback-only requirement (`127.0.0.1`).
-  - *Loopback Re-test:* The frontend was restarted using explicit loopback binding:
-    ```bash
-    pnpm run start --hostname 127.0.0.1 --port 3000
-    ```
-  - *Retest Result:* Active socket audit confirmed Node was strictly bound to IPv4 loopback:
-    ```text
-    node   <PID>  <USER>   16u  IPv4   <DEVICE>   0t0  TCP 127.0.0.1:3000 (LISTEN)
-    ```
-    Verified zero wildcard listeners (`*:3000`) and zero LAN socket exposure.
-- **Unexpected External Sockets:** **0**. The previously observed outbound WAN socket (`-> 34.36.133.15:443`) did not appear when running with `OLLAMA_NO_CLOUD=1` under severed network interfaces.
-- **Ollama Error Logs:** No crash or fatal exit observed in Ollama logs when network access was unavailable; model inference proceeded entirely in local VRAM.
-
-### E. Post-Test Restoration
-
+#### 5. Network Restoration (Event 1)
 After testing concluded:
 - Restored Wi-Fi via `networksetup -setairportpower en0 on`.
 - Verified restoration via `ping -c 1 8.8.8.8` (successful reply received).
 
 ---
 
+### C. Test Event 2: Local Loopback Listener Verification (October 18, 2026, Midday)
+
+#### 1. Rationale & Test Configuration
+To address the wildcard listener (`*:3000`) identified in Test Event 1, the Next.js CLI options were tested to enforce strict loopback binding.
+
+* **Build Command:**
+  ```bash
+  pnpm exec next build --webpack
+  ```
+  *(Compiled successfully in 527ms; 4/4 static pages generated).*
+* **Start Command with Explicit Loopback Binding:**
+  ```bash
+  pnpm run start --hostname 127.0.0.1 --port 3000
+  ```
+
+#### 2. Active Socket Audit (Event 2)
+With the server running, the active socket was inspected via `lsof -i -P -n | grep :3000`:
+```text
+node   3957   <USER>   16u   IPv4   0xcb6fc6de729ec9e2   0t0   TCP 127.0.0.1:3000 (LISTEN)
+```
+* **Recorded Result:** Node bound strictly to IPv4 loopback (`127.0.0.1:3000`). Zero wildcard listeners (`*:3000`) and zero LAN socket exposure were present.
+
+#### 3. Loopback HTTP Header Probe (Event 2)
+Executed HTTP request:
+```bash
+curl -I http://127.0.0.1:3000
+```
+* **Recorded Result:** Returned `HTTP/1.1 200 OK` (with `X-Powered-By: Next.js`).
+
+#### 4. Scope & Provenance Limitation (Event 2)
+* **Connected State:** Test Event 2 was performed in a connected local development environment. External network paths were **not** disabled during this test.
+* **No UI Pipeline Execution:** Test Event 2 verified only that the Next.js CLI accepts `--hostname 127.0.0.1`, binds exclusively to loopback, and responds to HTTP requests. The browser Q&A workflow (PDF upload, indexing, vector retrieval, generative inference) was **not re-exercised** during this listener re-test.
+
+---
+
+### D. Evidence Provenance & Pending Follow-Up Tests
+
+To avoid conflating separate test runs or inferring browser interaction from HTTP headers, the project explicitly documents the verification status:
+
+| Verification Target | What Has Been Demonstrated | Current Status |
+|---|---|---|
+| **Local Service Endpoints** | FastAPI, LanceDB, and Ollama communicate over loopback with zero external LLM API calls. | **VERIFIED** |
+| **Physical Offline Functional Q&A** | Full browser Q&A workflow (upload, index, grounded answer, page citation, safe refusal) works with network severed (Test Event 1). | **VERIFIED** *(with wildcard `*:3000` listener)* |
+| **Next.js Loopback Binding** | Next.js binds strictly to `127.0.0.1:3000` without wildcard `*:3000` listener (Test Event 2). | **VERIFIED** *(in connected environment)* |
+| **Combined Offline + Loopback-Bound Q&A** | Full browser Q&A workflow executed with network severed AND Next.js bound to `127.0.0.1:3000`. | **PENDING** *(Follow-up manual physical test required)* |
+| **Offline Scanned-PDF OCR Fallback** | End-to-end OCR fallback tested via browser upload of scanned-only PDF with network severed. | **PENDING** *(Currently verified via automated test fixtures only)* |
+
+---
+
 ## 7. Conclusions, Scope & Testing Limitations
 
-1. **Scope of the Test:**
-   - The test documented in Section 6 demonstrates that Air-Gapped RAG operates
-     successfully without external network connectivity on the specific host,
-     operating system, and model configuration tested (macOS 27.0.1, Apple M4,
-     Ollama 0.35.1, Gemma 4 12B, nomic-embed-text).
-   - All core capabilities—PDF ingestion, chunking, embedding, vector
-     retrieval, physical page citation, safe refusal, and UI state management—
-     functioned over loopback with zero external connections established.
-2. **Explicit Limitations:**
+1. **Scope of Verified Evidence:**
+   - The test evidence establishes that Air-Gapped RAG operates locally without
+     cloud AI APIs, and that its core functional pipeline (PDF upload, LanceDB
+     indexing, grounded query answering with physical page citations, and safe
+     abstention) succeeds when host network connectivity is severed (macOS 27.0.1,
+     Apple M4, Ollama 0.35.1, Gemma 4 12B, nomic-embed-text).
+   - In separate testing, the frontend production server was verified to support
+     strict loopback binding (`127.0.0.1:3000`) via `--hostname 127.0.0.1`.
+2. **Explicit Remaining Gaps & Pending Follow-Ups:**
+   - **Combined Offline + Loopback-Bound Test Pending:** The complete browser Q&A
+     workflow has not yet been executed in a single test session that combines
+     physical network severance with the explicit `--hostname 127.0.0.1` frontend
+     binding. This combined test remains explicitly pending.
+   - **Scanned-PDF Disconnected OCR Test Pending:** The physical offline test used
+     a digitally readable PDF (`ocr=False`). While Tesseract OCR runs locally
+     without network requests (verified by `test_ocr_retrieval_regression.py`),
+     end-to-end OCR fallback under severed network conditions in the browser UI has
+     not yet been independently recorded with an image-only PDF.
    - **Environment-Specific:** This test confirms offline functionality on the
-     particular workstation and software versions evaluated. It does not
-     guarantee identical behavior on different platforms, Linux distributions,
-     or container runtimes without independent verification.
-   - **Offline OCR Fallback Not Exercised in Disconnected Test:** The manual
-     physical disconnected test used a digitally readable PDF (`ocr=False`).
-     While Tesseract OCR runs locally in-process without network calls as
-     proven by automated test fixtures (`test_ocr_retrieval_regression.py`),
-     end-to-end OCR fallback under severed network conditions in the browser UI
-     has not yet been independently demonstrated with a scanned image PDF.
-   - **No Permanent Guarantee Against Third-Party Dependencies:** Future updates
-     to third-party packages (Node modules, Python libraries, or Ollama releases)
-     could introduce new network behaviors. Verification must be re-run whenever
-     dependencies are updated.
-   - **Software Flags vs. True Air-Gap:** Setting `OLLAMA_NO_CLOUD=1` disables
-     cloud features, but software flags alone cannot guarantee network isolation
-     if network interfaces remain active. True air-gap environments must enforce
-     physical network severance or OS/firewall-level egress blocking.
-   - **No Universal Security Claims:** This test does not evaluate or certify
-     the system against side-channel analysis, physical memory extraction, or
-     tampering with local model files.
+     particular workstation evaluated; cross-platform validation on Linux/containers
+     remains an ongoing track.
+   - **No Permanent Third-Party Guarantee:** Future updates to Ollama, Node packages,
+     or Python libraries must be re-audited for new outbound network behaviors.
+   - **Software Flags vs. True Air-Gap:** Setting `OLLAMA_NO_CLOUD=1` disables cloud
+     features, but hardware network severance or OS-level packet filtering
+     (`pf`/`iptables`) remains mandatory for high-assurance isolation.
 3. **Milestone & Repository Tracking:**
-   - This evidence satisfies the core technical milestone defined in GitHub
-     Issue #1 (*Establish reproducible evidence for offline operation and
-     network-isolation behavior*).
-   - Issues #1 and #2 remain open pending final maintainer review and broader
-     cross-platform evaluation.
+   - GitHub Issue #1 (*Establish reproducible evidence for offline operation and
+     network-isolation behavior*) remains **OPEN** pending completion of the
+     combined physical offline test and maintainer review.
+   - GitHub Issue #2 (*Cross-model evaluation and hardware benchmarks*) remains
+     **OPEN**.
    - The root `README.md` and privacy wording remain preserved as currently
      published until reviewed and approved.
