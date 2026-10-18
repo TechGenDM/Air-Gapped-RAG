@@ -69,12 +69,15 @@ During a live socket audit of running processes
 TCP connection was observed originating from the Ollama daemon process:
 
 ```text
-ollama  2262  devasishmishra  10u  IPv4  0xb722fe1dada123ce  0t0  TCP 192.168.31.200:49439->34.36.133.15:443 (ESTABLISHED)
+ollama  <PID>  <USER>  <FD>  IPv4  <SOCKET_ID>  0t0  TCP <LOCAL_IP>:<LOCAL_PORT>->34.36.133.15:443 (ESTABLISHED)
 ```
 
+*(Note: Machine-specific local usernames, PIDs, file descriptors, and private
+LAN addresses have been redacted from the log line above.)*
+
 **What is confirmed by observation:**
-* The process `ollama` (PID 2262) held an established TCP connection to
-  destination IP `34.36.133.15` on port `443` (HTTPS).
+* The process `ollama` held an established TCP connection to destination IP
+  `34.36.133.15` on port `443` (HTTPS).
 * WHOIS lookup of `34.36.133.15` shows it is within the `GOOGL-2` netblock
   (`34.4.5.0 – 34.63.255.255`), registered to Google LLC and designated for
   Google Cloud customer use.
@@ -119,10 +122,10 @@ ollama  2262  devasishmishra  10u  IPv4  0xb722fe1dada123ce  0t0  TCP 192.168.31
   recorded on the designated test workstation (see Section 6: Completed Physical
   Offline Verification).
 * Under the specific conditions tested (all external network paths severed,
-  Ollama launched with `OLLAMA_NO_CLOUD=1`), the application performed PDF upload,
-  indexing, grounded question answering with exact physical-page citations, safe
-  abstention, and successive query handling without errors and with zero external
-  sockets observed.
+  Ollama launched with `OLLAMA_NO_CLOUD=1`, and the frontend bound strictly to
+  `127.0.0.1`), the application performed PDF upload, indexing, grounded
+  question answering with exact physical-page citations, safe abstention, and
+  successive query handling without errors and with zero external sockets observed.
 * While this establishes reproducible empirical evidence of offline operation
   on the tested host, it does not constitute universal security guarantees across
   every possible hardware configuration, network topology, or dependency update.
@@ -192,7 +195,7 @@ uv run pytest -q
 
 # 3. Verify Frontend Bundles
 cd ../frontend
-pnpm run build
+pnpm exec next build --webpack
 # Expected: Successful production build
 ```
 
@@ -373,10 +376,17 @@ uvicorn app.main:app --port 8000
 ```
 
 ```bash
-# Terminal 3 — Frontend
+# Terminal 3 — Frontend (explicitly bound to loopback)
 cd frontend
-pnpm run start --port 3000
+pnpm run start --hostname 127.0.0.1 --port 3000
 ```
+
+> [!NOTE]
+> By default, `next start` binds to `0.0.0.0` (wildcard listener `*:3000`),
+> which listens across all host network adapters. Passing `--hostname 127.0.0.1`
+> is required to ensure the Node server binds strictly to the loopback address
+> (`127.0.0.1:3000`), satisfying the local-only socket invariant and preventing
+> exposure on LAN interfaces.
 
 ### Step 5: Verify Local Loopback Health
 
@@ -389,6 +399,9 @@ curl -s http://127.0.0.1:11434/api/tags | grep -o "gemma4:12b"
 
 curl -s http://127.0.0.1:8000/health
 # Expected: {"status":"ok","app":"air-gapped-rag-backend","version":"0.1.0"}
+
+curl -I http://127.0.0.1:3000
+# Expected: HTTP/1.1 200 OK
 ```
 
 ### Step 6: Execute In-Process Automated Synthetic Demonstration
@@ -408,7 +421,7 @@ backend/.venv/bin/python scripts/demo_air_gapped_rag.py --local
 
 ### Step 7: Execute Browser-Based UI Test
 
-1. Open a local browser and navigate to `http://localhost:3000`.
+1. Open a local browser and navigate to `http://127.0.0.1:3000`.
 2. Open Browser Developer Tools → **Network** tab.
 3. Upload a sample contract PDF (under 50 MB).
 4. Verify document viewer renders physical pages correctly.
@@ -428,9 +441,9 @@ lsof -i -P -n | grep -E 'python|node|ollama'
 
 **Verification Invariant:**
 All sockets must reference `127.0.0.1` or `[::1]` only. No foreign IP
-addresses should appear. If any external destination is listed, record the
-full `lsof` line, the process name, PID, and destination, and note it as a
-finding.
+addresses or wildcard `*:3000` listeners should appear. If any external
+destination is listed, record the full `lsof` line, the process name, PID,
+and destination, and note it as a finding.
 
 ### Step 9: Check Ollama Logs for Connection Errors
 
@@ -517,18 +530,19 @@ verified using the multi-probe procedure:
 With all network paths severed, local services were started:
 * Ollama: `OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 ollama serve`
 * Backend API: `uvicorn app.main:app --port 8000` (FastAPI)
-* Frontend: `pnpm run start --port 3000` (Next.js)
+* Frontend: `pnpm run start --hostname 127.0.0.1 --port 3000` (Next.js production server explicitly bound to loopback)
 
 The following verification steps were performed:
 
 1. **Local Health Endpoints:**
    - `curl -s http://127.0.0.1:11434/api/tags` returned `gemma4:12b` and `nomic-embed-text:latest`.
    - `curl -s http://127.0.0.1:8000/health` returned `{"status":"ok","app":"air-gapped-rag-backend","version":"0.1.0"}`.
-2. **PDF Upload & Text Extraction:**
-   - Uploaded a sample contract agreement via the browser interface at `http://localhost:3000`.
-   - Upload returned `201 Created` with generated UUID.
-   - PyMuPDF successfully extracted digital text with 1-indexed physical page boundaries preserved.
-   - Browser viewer rendered extracted page summaries and page preview cards.
+   - `curl -I http://127.0.0.1:3000` returned `HTTP/1.1 200 OK`.
+2. **PDF Ingestion & Digital Parsing (OCR Not Exercised in this Test):**
+   - Uploaded a sample digital contract PDF via the browser interface (`http://127.0.0.1:3000`).
+   - PyMuPDF extracted digital text with 1-indexed physical page boundaries preserved (`ocr=False`).
+   - Document upload returned `201 Created` with generated UUID and page previews.
+   - **Important Limitation & OCR Clarification:** Because the uploaded test document contained extractable digital text, Tesseract OCR fallback was **not independently exercised** during this specific physical disconnected session. Evidence for local, offline OCR operation currently derives from the local automated test suite (`backend/tests/test_ocr_retrieval_regression.py` and `backend/tests/test_pdf_service.py`), which verifies deterministic multi-column table reconstruction using local Tesseract 5.5.2 without network requests. Independent disconnected testing with an image-only/scanned PDF remains an open follow-up verification item.
 3. **LanceDB Vector Indexing:**
    - Triggered document indexing via `POST /api/v1/documents/{id}/index`.
    - Vectorization executed over loopback via Ollama `/api/embed` using `nomic-embed-text`.
@@ -560,11 +574,21 @@ socket audit command was executed:
 lsof -i -P -n | grep -E 'python|node|ollama'
 ```
 
-**Recorded Output:**
+**Recorded Output & Listener Invariant Analysis:**
 - `python` processes: bound strictly to `127.0.0.1:8000` (LISTEN) and loopback connections (`127.0.0.1:<port> -> 127.0.0.1:8000`).
-- `node` processes: bound to `127.0.0.1` / `*:3000` (LISTEN) and internal IPC pairs (`127.0.0.1:49308 <-> 127.0.0.1:49309`).
 - `ollama` process: bound strictly to `127.0.0.1:11434` (LISTEN) and loopback connections to the backend.
-- **Unexpected External Sockets:** **0**. The previously observed outbound socket (`-> 34.36.133.15:443`) did not appear when running with `OLLAMA_NO_CLOUD=1` under severed network interfaces.
+- **Frontend Node Listener Evaluation & Re-test:**
+  - *Initial Observation:* When the Next.js production server was initially launched with `pnpm run start --port 3000`, the process created a wildcard listener (`TCP *:3000 (LISTEN)`). Although no outbound WAN sockets were established, a wildcard listener binds to `0.0.0.0` across all host interfaces, which does **not** satisfy the project's strict loopback-only requirement (`127.0.0.1`).
+  - *Loopback Re-test:* The frontend was restarted using explicit loopback binding:
+    ```bash
+    pnpm run start --hostname 127.0.0.1 --port 3000
+    ```
+  - *Retest Result:* Active socket audit confirmed Node was strictly bound to IPv4 loopback:
+    ```text
+    node   <PID>  <USER>   16u  IPv4   <DEVICE>   0t0  TCP 127.0.0.1:3000 (LISTEN)
+    ```
+    Verified zero wildcard listeners (`*:3000`) and zero LAN socket exposure.
+- **Unexpected External Sockets:** **0**. The previously observed outbound WAN socket (`-> 34.36.133.15:443`) did not appear when running with `OLLAMA_NO_CLOUD=1` under severed network interfaces.
 - **Ollama Error Logs:** No crash or fatal exit observed in Ollama logs when network access was unavailable; model inference proceeded entirely in local VRAM.
 
 ### E. Post-Test Restoration
@@ -582,7 +606,7 @@ After testing concluded:
      successfully without external network connectivity on the specific host,
      operating system, and model configuration tested (macOS 27.0.1, Apple M4,
      Ollama 0.35.1, Gemma 4 12B, nomic-embed-text).
-   - All core capabilities—PDF ingestion, OCR, chunking, embedding, vector
+   - All core capabilities—PDF ingestion, chunking, embedding, vector
      retrieval, physical page citation, safe refusal, and UI state management—
      functioned over loopback with zero external connections established.
 2. **Explicit Limitations:**
@@ -590,6 +614,12 @@ After testing concluded:
      particular workstation and software versions evaluated. It does not
      guarantee identical behavior on different platforms, Linux distributions,
      or container runtimes without independent verification.
+   - **Offline OCR Fallback Not Exercised in Disconnected Test:** The manual
+     physical disconnected test used a digitally readable PDF (`ocr=False`).
+     While Tesseract OCR runs locally in-process without network calls as
+     proven by automated test fixtures (`test_ocr_retrieval_regression.py`),
+     end-to-end OCR fallback under severed network conditions in the browser UI
+     has not yet been independently demonstrated with a scanned image PDF.
    - **No Permanent Guarantee Against Third-Party Dependencies:** Future updates
      to third-party packages (Node modules, Python libraries, or Ollama releases)
      could introduce new network behaviors. Verification must be re-run whenever
